@@ -29,7 +29,6 @@ cv2.destroyAllWindows()
 def load_image(path):
     return tf.io.decode_jpeg(tf.io.read_file(path))
 
-# 2. Prepare labels in train/test/val
 for split in ['train', 'test', 'val']:
     for img_name in os.listdir(os.path.join('data', split, 'images')):
         filename = img_name.split('.')[0] + '.json'
@@ -38,7 +37,6 @@ for split in ['train', 'test', 'val']:
             dst_label = os.path.join('data', split, 'labels', filename)
             os.replace(src_label, dst_label)
 
-# 3. Augmentation setup
 augmentor = alb.Compose([
     alb.RandomCrop(450, 450),
     alb.HorizontalFlip(0.5),
@@ -48,7 +46,6 @@ augmentor = alb.Compose([
     alb.VerticalFlip(0.5)
 ], bbox_params=alb.BboxParams(format='albumentations', label_fields=['cls']))
 
-# 4. Augment & build augmented data
 for i in ['train', 'test', 'val']:
     aug_images_dir = os.path.join('aug_data', i, 'images')
     aug_labels_dir = os.path.join('aug_data', i, 'labels')
@@ -81,7 +78,6 @@ for i in ['train', 'test', 'val']:
             with open(os.path.join(aug_labels_dir, f"{img_name[:-4]}.{i}.json"), 'w') as f:
                 json.dump(annotation, f)
 
-# 5. Dataset preparation
 def prep_images(ima):
     return tf.data.Dataset.list_files(ima).map(load_image).map(lambda x: tf.image.resize(x, (120, 120)) / 255.0)
 
@@ -106,7 +102,6 @@ val_ds = tf.data.Dataset.zip((prep_images(os.path.join('aug_data', 'val', 'image
                              prep_labels(os.path.join('aug_data', 'val', 'labels', '*.json'))))
 val_ds = val_ds.shuffle(1000).batch(8).prefetch(tf.data.AUTOTUNE)
 
-# 6. Build base model
 def build_model():
     inp = Input(shape=(120, 120, 3))
     vgg = VGG16(include_top=False)(inp)
@@ -116,11 +111,9 @@ def build_model():
     bbox_out = Dense(4, activation='sigmoid')(Dense(2048, activation='relu')(f2))
     return Model(inputs=inp, outputs=[class_out, bbox_out])
 
-# Custom localization loss for bounding box regression
 def localization_loss(y_true, y_pred):
     return tf.reduce_mean(tf.abs(y_true - y_pred))
 
-# 7. Custom FaceTracker Model
 class FaceTracker(tf.keras.Model):
     def __init__(self, base_model):
         super().__init__()
@@ -150,14 +143,12 @@ class FaceTracker(tf.keras.Model):
         loss = loss_cls + loss_bbox
         return {'loss': loss, 'class_loss': loss_cls, 'bbox_loss': loss_bbox}
 
-# 8. Compile and train
 model = FaceTracker(build_model())
 optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001)
 model.compile(optimizer=optimizer)
 model.fit(train_ds, epochs=10, validation_data=val_ds, callbacks=[tf.keras.callbacks.TensorBoard(log_dir='logs')])
 model.model.save('facetracker.h5')
 
-# 9. Inference
 model = load_model('facetracker.h5', compile=False)
 cap = cv2.VideoCapture(1)
 while cap.isOpened():
